@@ -10,12 +10,13 @@
 #define PROGRAMSTART 0x200
 #define DISPLAY_WIDTH 64
 #define DISPLAY_HEIGHT 32
-
+#define STACK_SIZE 64
 
 
 // memory and display
 uint8_t mem[MEMSIZE];
 uint8_t display[DISPLAY_WIDTH * DISPLAY_HEIGHT];
+uint8_t stack[STACK_SIZE];
 
 // special registers
 uint16_t pc; // starts at PROGRAMSTART
@@ -53,8 +54,12 @@ void chip8_init(void){
   pc = PROGRAMSTART;
   I  = 0;
   sp = 0;
+
+  // clear display and program area
   for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++) 
     display[i] = 0;
+  for (int i = PROGRAMSTART; i < MEMSIZE; i++)
+    mem[i] = 0;
 }
 
 bool chip8_load(char *filepath){
@@ -84,28 +89,103 @@ bool chip8_load(char *filepath){
   return true;
 }
 
-void read_instr(uint16_t instr){
+void read_opcode(uint16_t opcode){
+  uint16_t addr, k;
+  uint8_t x, y, n, instr = (opcode & 0xF000) >> 12;
+
   switch (instr) {
-    case 0x00E0:
-      TODO("cls");
-      return;
-    case 0x00EE:
-      TODO("RET");
-      return;
-  }
+  case 0x0:
+    TODO("sys, cls, ret")
+    break;
 
-  switch (instr & 0x1) {
-    case 1:
-      TODO("JP to addres");
-    case 2:
-      TODO("CALL addres");
-    case 3:
-      TODO("SET Vx BYTE");
-    case 4:
-      TODO(s)
-  
-  }
+  case 0x1:
+    pc = opcode & 0x0FFF;
+    break;
 
+  case 0x2:
+    addr = opcode & 0x0FFF;
+    TODO("call addr");
+    break;
+
+  case 0x3:
+    x = opcode & 0x0F00 >> 8;
+    TODO("SET Vx BYTE");
+    break;
+
+  case 0x4:
+    x = opcode & 0x0F00 >> 8;
+    TODO("SNE Vx, byte");
+    break;
+
+  case 0x5:
+    x = opcode & 0x0F00 >> 8;
+    y = opcode & 0x00F0 >> 4;
+    TODO("Se Vx, Vy");
+    break;
+
+  case 0x6:
+    x = opcode & 0x0F00 >> 8;
+    k = opcode & 0x00FF;
+    TODO("LD Vx, by");
+    break;
+
+  case 0x7:
+    x = opcode & 0x0F00 >> 8;
+    k = opcode & 0x00FF;
+    TODO("ADD Vx, byte");
+    break;
+
+  case 0x8:
+    x = opcode & 0x0F00 >> 8;
+    y = opcode & 0x00F0 >> 4;
+    switch (opcode & 0x000F) {
+      TODO("operations between registers")    
+    }
+    break;
+
+  case 0x9:
+    x = opcode & 0x0F00 >> 8;
+    y = opcode & 0x00F0 >> 4;
+    TODO("SNE Vx, Vy");
+    break;
+
+  case 0xA:
+    addr = opcode & 0x0FFF;
+    TODO("LD I, addr");
+    break;
+
+  case 0xB:
+    addr = opcode & 0x0FFF;
+    TODO("JP V0, addr");
+    break;
+
+  case 0xC:
+    x = opcode & 0x0F00 >> 8;
+    k = opcode & 0x00FF;
+    TODO("RND Vx, byte");
+    break;
+
+  case 0xD:
+    x = opcode & 0x0F00 >> 8;
+    y = opcode & 0x00F0 >> 4;
+    n = opcode & 0x000F;
+    TODO("DRW Vx, Vy, nibble");
+    break;
+
+  case 0xE:
+    x = opcode & 0x0F00 >> 8;
+    switch (opcode & 0x000F) {
+      TODO("SKP, SKPN");
+    }
+    break;
+
+  case 0xF:
+    x = opcode & 0x0F00 >> 8;
+    switch (opcode & 0x00FF) {
+      TODO("input, time and special registers");
+    }
+    break;
+  }
 }
 
 

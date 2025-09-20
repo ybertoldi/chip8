@@ -1,4 +1,7 @@
 
+#include <SDL2/SDL_keycode.h>
+#include <SDL2/SDL_timer.h>
+#include <SDL2/SDL_video.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -6,24 +9,31 @@
 #include <unistd.h>
 #include <locale.h>
 
-
-#include <ncurses.h>
-#include <curses.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_keyboard.h>
 
 #define TODO(s)                                                                \
   printf("TODO: %s\n", s);                                                     \
   exit(0);
+
+#define PIXEL_SIZE 15
+#define WINDOW_HEIGHT (PIXEL_SIZE * 32)
+#define WINDOW_WIDTH  (PIXEL_SIZE * 64)
+#define FPS (1000 / 60)
 
 #define MEMSIZE 4096
 #define PROGRAMSTART 0x200
 #define DISPLAY_WIDTH 64
 #define DISPLAY_HEIGHT 32
 #define STACK_SIZE 64
-#define DISPLAY(x, y) display[(x) + (y) * DISPLAY_WIDTH]
+#define DISPLAY(x, y) display_pixels[(x) + (y) * DISPLAY_WIDTH]
+
+SDL_Event evt;
+bool running = true;
 
 // memory and display
 uint8_t mem[MEMSIZE];
-uint8_t display[DISPLAY_WIDTH * DISPLAY_HEIGHT];
+uint8_t display_pixels[DISPLAY_WIDTH * DISPLAY_HEIGHT];
 uint16_t stack[STACK_SIZE];
 uint8_t keys[16];
 bool jump;
@@ -41,6 +51,40 @@ uint8_t V[16]; // 16 registradores // V[0xF] é especial
 uint8_t curkey;
 
 FILE *logfile;
+
+typedef struct {
+  SDL_Window *window;
+  SDL_Surface *surface;
+} Display;
+
+
+void squit(void) {
+  SDL_Quit();
+  printf("SDL exited\n");
+}
+
+Display sdl_initialize(uint32_t flags) {
+  atexit(squit);
+  SDL_Window *window = NULL;
+  SDL_Surface *surface = NULL;
+
+  printf("initializing SDL\n");
+  if (SDL_Init(flags) < 0) {
+    fprintf(stderr, "couldnt initialize sdl: %s\n", SDL_GetError());
+    exit(1);
+  }
+  if ((window = SDL_CreateWindow("qualquer_coisa", 0, 0,WINDOW_WIDTH ,WINDOW_HEIGHT , 0)) ==
+      NULL) {
+    fprintf(stderr, "could not create window\n");
+    exit(1);
+  }
+  if ((surface = SDL_GetWindowSurface(window)) == NULL) {
+    fprintf(stderr, "could not create window\n");
+    exit(1);
+  }
+  printf("SDL initialized\n");
+  return (Display){.window = window, .surface = surface};
+}
 
 void chip8_init(void) {
   static uint8_t fontset[80] = {
@@ -70,7 +114,7 @@ void chip8_init(void) {
 
   // clear display and program area
   for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++)
-    display[i] = 0;
+    display_pixels[i] = 0;
   for (int i = PROGRAMSTART; i < MEMSIZE; i++)
     mem[i] = 0;
 }
@@ -114,6 +158,47 @@ int get_key(char c) {
   }
 }
 
+int read_event(){
+  bool pressed;
+  int key;
+  int last_read = -1;
+    while (SDL_PollEvent(&evt)) {
+      switch (evt.type) {
+        case SDL_QUIT: 
+          exit(0);
+          break;
+
+        case SDL_KEYDOWN:
+        case SDL_KEYUP:
+          pressed = evt.type == SDL_KEYDOWN;
+          key = evt.key.keysym.sym;
+          switch (key) {
+            case SDLK_0: keys[0]  = pressed; if (pressed) last_read = 0;  break;
+            case SDLK_1: keys[1]  = pressed; if (pressed) last_read = 1;  break;
+            case SDLK_2: keys[2]  = pressed; if (pressed) last_read = 2;  break;
+            case SDLK_3: keys[3]  = pressed; if (pressed) last_read = 3;  break;
+            case SDLK_4: keys[4]  = pressed; if (pressed) last_read = 4;  break;
+            case SDLK_5: keys[5]  = pressed; if (pressed) last_read = 5;  break;
+            case SDLK_6: keys[6]  = pressed; if (pressed) last_read = 6;  break;
+            case SDLK_7: keys[7]  = pressed; if (pressed) last_read = 7;  break;
+            case SDLK_8: keys[8]  = pressed; if (pressed) last_read = 8;  break;
+            case SDLK_9: keys[9]  = pressed; if (pressed) last_read = 9;  break;
+            case SDLK_a: keys[10] = pressed; if (pressed) last_read = 10; break;
+            case SDLK_b: keys[11] = pressed; if (pressed) last_read = 11; break;
+            case SDLK_c: keys[12] = pressed; if (pressed) last_read = 12; break;
+            case SDLK_d: keys[13] = pressed; if (pressed) last_read = 13; break;
+            case SDLK_e: keys[14] = pressed; if (pressed) last_read = 14; break;
+            case SDLK_f: keys[15] = pressed; if (pressed) last_read = 15; break;
+          }
+          break;
+
+        default:
+          break;
+      }
+    }
+    return last_read;
+}
+
 void read_opcode(uint16_t opcode) {
   uint16_t addr, k;
   uint8_t x, y, n,xpos, ypos, sprite, bit,  instr = (opcode & 0xF000) >> 12;
@@ -125,8 +210,7 @@ void read_opcode(uint16_t opcode) {
     switch (opcode & 0x0FFF) {
       case 0x00E0:
         //fprintf(logfile,"CLS\n");
-        for (int i = 0; i < DISPLAY_HEIGHT * DISPLAY_WIDTH; i++) display[i] = 0;
-        clear();
+        for (int i = 0; i < DISPLAY_HEIGHT * DISPLAY_WIDTH; i++) display_pixels[i] = 0;
         break;
 
       case 0x00EE:
@@ -285,8 +369,8 @@ void read_opcode(uint16_t opcode) {
           V[0xF] = 1;
 
         DISPLAY(xpos, ypos) = bit ^ DISPLAY(xpos, ypos);
-        move(ypos + 1, xpos + 1);
-        printw("%s", DISPLAY(xpos, ypos) ? "█" : " ");
+        // move(ypos + 1, xpos + 1);
+        // printw("%s", DISPLAY(xpos, ypos) ? "█" : " ");
       }
     }
     break;
@@ -316,8 +400,8 @@ void read_opcode(uint16_t opcode) {
       break;
     case 0x0A:
       //fprintf(logfile,"WAITK V%d, K\n", x);
-      while ((c = get_key(getch())) == -1)
-          ;
+      while ((c = read_event()) == -1 )
+        ;
       V[x] = c;
       //fprintf(logfile," (=%d)\n", c);
       break;
@@ -361,7 +445,6 @@ void read_opcode(uint16_t opcode) {
 
 
 int main(int argc, char *argv[]) {
-  setlocale(LC_ALL, "");
   int iters = 0;
   int c;
   uint16_t opcode;
@@ -370,47 +453,64 @@ int main(int argc, char *argv[]) {
   logfile = fopen("log.log", "w");
   setvbuf(logfile, NULL, _IOLBF, 1000);
 
-  initscr();
-  cbreak();
-  noecho();
-  curs_set(0);
-  nodelay(stdscr, TRUE); // Set stdscr to non-blocking
+  // initscr();
+  // cbreak();
+  // noecho();
+  // curs_set(0);
+  // keypad(stdscr, TRUE);
+  // nodelay(stdscr, TRUE); // Set stdscr to non-blocking
 
+  Display display = sdl_initialize(SDL_INIT_VIDEO);
   chip8_init();
   chip8_load(argv[1]);
 
   while (1) {
+    read_event();
 
-    for (int i = 0; i < 16; i++) keys[i] = 0;
-    while ((c = get_key(getch())) != -1) keys[c] = 1;
     opcode = mem[pc] << 8 | mem[pc + 1];
     pc += 2;
     read_opcode(opcode);
-    refresh();
+    //refresh();
 
     if (dt > 0) dt--;
     if (st > 0) st--;
-    usleep(20000);
+    
+    SDL_Rect rect = {.h = PIXEL_SIZE, .w = PIXEL_SIZE};
+    for (int i = 0; i < 32; i++){
+      for (int j = 0; j < 64; j++){
+        rect.x = (j * (PIXEL_SIZE));
+        rect.y = (i * (PIXEL_SIZE));
+
+        SDL_FillRect(
+            display.surface,
+            &rect, 
+            DISPLAY(j, i) ? 0xFFFFFF : 0x000000
+        );
+      }
+    }
+    
+    SDL_UpdateWindowSurface(display.window);
+    SDL_Delay(FPS);
   }
 }
 
-int main2(int argc, char *argv[]) {
-  setlocale(LC_ALL, "");
-  int iters = 0;
-  int c;
-  V[0] = 0;
-  V[1] = 0;
-  logfile = fopen("instructions", "w");
-  setvbuf(logfile, NULL, _IOLBF, 1000);
-  chip8_load(argv[1]);
-  for (int i = PROGRAMSTART; i+1 < MEMSIZE; i+=2){
-    read_opcode(mem[i] << 8 | mem[i+1]);
-  }
-
-  
-
-  return 0;
-}
+// int main2(int argc, char *argv[]) {
+//   setlocale(LC_ALL, "");
+//   int iters = 0;
+//   int c;
+//   V[0] = 0;
+//   V[1] = 0;
+//   logfile = fopen("instructions", "w");
+//   setvbuf(logfile, NULL, _IOLBF, 1000);
+//   chip8_load(argv[1]);
+//   for (int i = PROGRAMSTART; i+1 < MEMSIZE; i+=2){
+//     read_opcode(mem[i] << 8 | mem[i+1]);
+//   }
+// 
+//   
+// 
+//   return 0;
+// }
 
 // int main1(){
 //   int iters = 0;

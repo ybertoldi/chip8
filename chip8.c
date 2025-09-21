@@ -12,51 +12,32 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_keyboard.h>
 
-#define TODO(s)                                                                \
-  printf("TODO: %s\n", s);                                                     \
-  exit(0);
+// uncomment to enable instruction logging
+#define DO_LOGGING 
 
+#ifdef DO_LOGGING
+  FILE *logfile;
+  #define LOGFILE_NAME "log.log"
+  #define LOG_INIT logfile = fopen(LOGFILE_NAME, "w")
+  #define LOG(text, ...) fprintf(logfile, text, __VA_ARGS__)
+#else 
+  #define LOGFILE_NAME
+  #define LOG_INIT
+  #define LOG(text, ...)
+#endif 
+
+// SDL
 #define PIXEL_SIZE 15
 #define WINDOW_HEIGHT (PIXEL_SIZE * 32)
 #define WINDOW_WIDTH  (PIXEL_SIZE * 64)
 #define FPS (1000 / 60)
-
-#define MEMSIZE 4096
-#define PROGRAMSTART 0x200
-#define DISPLAY_WIDTH 64
-#define DISPLAY_HEIGHT 32
-#define STACK_SIZE 64
-#define DISPLAY(x, y) display_pixels[(x) + (y) * DISPLAY_WIDTH]
-
-SDL_Event evt;
-bool running = true;
-
-// memory and display
-uint8_t mem[MEMSIZE];
-uint8_t display_pixels[DISPLAY_WIDTH * DISPLAY_HEIGHT];
-uint16_t stack[STACK_SIZE];
-uint8_t keys[16];
-bool jump;
-
-// special registers
-uint16_t pc; // starts at PROGRAMSTART
-uint16_t sp; // stack pointer
-uint16_t I;  // memory adresses
-
-uint8_t dt; // time
-uint8_t st; // sound
-
-// general purpose registers
-uint8_t V[16]; // 16 registradores // V[0xF] é especial
-uint8_t curkey;
-
-FILE *logfile;
 
 typedef struct {
   SDL_Window *window;
   SDL_Surface *surface;
 } Display;
 
+SDL_Event evt;
 
 void squit(void) {
   SDL_Quit();
@@ -86,6 +67,34 @@ Display sdl_initialize(uint32_t flags) {
   return (Display){.window = window, .surface = surface};
 }
 
+
+// CHIP8
+#define MEMSIZE 4096
+#define PROGRAMSTART 0x200
+#define DISPLAY_WIDTH 64
+#define DISPLAY_HEIGHT 32
+#define STACK_SIZE 64
+#define DISPLAY(x, y) display_pixels[(x) + (y) * DISPLAY_WIDTH]
+
+// memory and display
+uint8_t mem[MEMSIZE];
+uint8_t display_pixels[DISPLAY_WIDTH * DISPLAY_HEIGHT];
+uint16_t stack[STACK_SIZE];
+uint8_t keys[16];
+bool jump;
+
+// special registers
+uint16_t pc; // starts at PROGRAMSTART
+uint16_t sp; // stack pointer
+uint16_t I;  // memory adresses
+
+uint8_t dt; // time
+uint8_t st; // sound
+
+// general purpose registers
+uint8_t V[16]; // 16 registradores // V[0xF] é especial
+uint8_t curkey;
+
 void chip8_init(void) {
   static uint8_t fontset[80] = {
       0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -112,7 +121,6 @@ void chip8_init(void) {
   I = 0;
   sp = 0;
 
-  // clear display and program area
   for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++)
     display_pixels[i] = 0;
   for (int i = PROGRAMSTART; i < MEMSIZE; i++)
@@ -144,18 +152,6 @@ bool chip8_load(char *filepath) {
 
   fclose(romfile);
   return true;
-}
-
-int get_key(char c) {
-  if (c >= '0' && c <= '9') {
-    return c - '0';
-  } else if (c >= 'a' && c <= 'f') {
-    return c - 'a' + 10;
-  } else if (c >= 'A' && c <= 'F') {
-    return c - 'A' + 10;
-  } else {
-    return -1;
-  }
 }
 
 int read_event(){
@@ -209,12 +205,12 @@ void read_opcode(uint16_t opcode) {
   case 0x0:
     switch (opcode & 0x0FFF) {
       case 0x00E0:
-        //fprintf(logfile,"CLS\n");
+        LOG("CLS%s\n", "");
         for (int i = 0; i < DISPLAY_HEIGHT * DISPLAY_WIDTH; i++) display_pixels[i] = 0;
         break;
 
       case 0x00EE:
-        //fprintf(logfile,"RET (stack[%d]=%d)\n", sp, stack[sp]);
+        LOG("RET (stack[%d]=%d)\n", sp, stack[sp]);
         if (sp == 0){
           pc = 0;
         } else {
@@ -223,54 +219,54 @@ void read_opcode(uint16_t opcode) {
         break;
 
       default:
-        //fprintf(logfile,"SYS addr (=%d)\n", opcode & 0x0FFF);
+        LOG("SYS addr (=%d)\n", opcode & 0x0FFF);
         pc = opcode & 0x0FFF;
         break;
     }
     break;
 
-  case 0x1: // JP addr
-    //fprintf(logfile," JP addr = %d\n",opcode & 0x0FFF );
+  case 0x1: 
+    LOG(" JP addr = %d\n",opcode & 0x0FFF );
     pc = opcode & 0x0FFF;
     break;
 
-  case 0x2: // CALL addr
-    //fprintf(logfile," CALL addr = %d; stack[%d] = %d\n", opcode & 0x0FFF, sp, pc);
+  case 0x2:
+    LOG(" CALL addr = %d; stack[%d] = %d\n", opcode & 0x0FFF, sp, pc);
     addr = opcode & 0x0FFF;
     stack[sp++] = pc;
     pc = addr;
     break;
 
-  case 0x3: // SE Vx, byte
+  case 0x3:
     x = (opcode & 0x0F00) >> 8;
     k = opcode & 0x00FF;
-    //fprintf(logfile," SE V%d, %d\n",x,k);
+    LOG(" SE V%d, %d\n",x,k);
     if (V[x] == k) pc += 2;
     break;
 
-  case 0x4: // SNE Vx, byte
+  case 0x4:
     x = (opcode & 0x0F00) >> 8;
     k = opcode & 0x00FF;
-    //fprintf(logfile," SNE V%d, %d\n",x,k);
+    LOG(" SNE V%d, %d\n",x,k);
     if (V[x] != k) pc += 2;
     break;
 
-  case 0x5: // SE Vx, Vy
+  case 0x5:
     x = (opcode & 0x0F00) >> 8;
     y = (opcode & 0x00F0) >> 4;
-    //fprintf(logfile," SE V%d, V%d\n",x,y);
+    LOG(" SE V%d, V%d\n",x,y);
     if (V[x] == V[y]) pc += 2;
     break;
 
-  case 0x6: // LD Vx, byte
+  case 0x6:
     x = (opcode & 0x0F00) >> 8;
-    //fprintf(logfile," LD V%d, %d\n", x, opcode & 0x00FF);
+    LOG(" LD V%d, %d\n", x, opcode & 0x00FF);
     V[x] = opcode & 0x00FF;
     break;
 
-  case 0x7: // ADD Vx, byte
+  case 0x7: 
     x = (opcode & 0x0F00) >> 8;
-    //fprintf(logfile," ADD V%d, %d\n", x, opcode & 0x00FF);
+    LOG(" ADD V%d, %d\n", x, opcode & 0x00FF);
     V[x] += opcode & 0x00FF;
     break;
 
@@ -278,76 +274,76 @@ void read_opcode(uint16_t opcode) {
     x = (opcode & 0x0F00) >> 8;
     y = (opcode & 0x00F0) >> 4;
     switch (opcode & 0x000F) {
-    case 0x0: // LD Vx, Vy
-    //fprintf(logfile," LD V%d, V%d\n", x, y);
+    case 0x0: 
+    LOG(" LD V%d, V%d\n", x, y);
       V[x] = V[y];
       break;
-    case 0x1: // OR Vx, Vy
-    //fprintf(logfile," OR V%d, V%d\n", x, y);
+    case 0x1: 
+    LOG(" OR V%d, V%d\n", x, y);
       V[x] |= V[y];
       break;
-    case 0x2: // AND Vx, Vy
-    //fprintf(logfile," AND V%d, V%d\n", x, y);
+    case 0x2: 
+    LOG(" AND V%d, V%d\n", x, y);
       V[x] &= V[y];
       break;
-    case 0x3: // XOR Vx, Vy
-    //fprintf(logfile," XOR V%d, V%d\n", x, y);
+    case 0x3: 
+    LOG(" XOR V%d, V%d\n", x, y);
       V[x] ^= V[y];
       break;
-    case 0x4: // ADD Vx, Vy
-    //fprintf(logfile," ADD V%d, V%d\n", x, y);
+    case 0x4: 
+    LOG(" ADD V%d, V%d\n", x, y);
       sum = (uint16_t) V[x] + (uint16_t) V[y];
       V[0xF] = sum > 0xFF;
       V[x] = sum & 0xFF;
       break;
-    case 0x5: // SUB Vx, Vy
-    //fprintf(logfile," SUB V%d, V%d\n", x, y);
+    case 0x5: 
+    LOG(" SUB V%d, V%d\n", x, y);
       V[0xF] = V[x] >= V[y];
       V[x] -= V[y];
       break;
-    case 0x6: // SHR Vx, {, Vy}
-    //fprintf(logfile," SHR V%d, {, V%d}\n", x, y);
+    case 0x6: 
+    LOG(" SHR V%d, {, V%d}\n", x, y);
       V[0xF] = V[x] & 0x1;
       V[x] >>= 1;
       break;
-    case 0x7: // SUBN Vx, Vy
-    //fprintf(logfile," SUBN V%d, V%d\n", x, y);
+    case 0x7: 
+    LOG(" SUBN V%d, V%d\n", x, y);
       V[0xF] = V[y] >= V[x];
       V[x] = V[y] - V[x];
       break;
-    case 0xE:                       // SHL Vx
-    //fprintf(logfile," SHL V%d\n", x);
+    case 0xE:                       
+    LOG(" SHL V%d\n", x);
       V[0xF] = (V[x] & 0x80) >> 7;
       V[x] <<=  1;
       break;
     }
     break;
 
-  case 0x9: // SNE Vx, Vy
-    //fprintf(logfile," SNE V%d, V%d\n", x, y);
+  case 0x9: 
+    LOG(" SNE V%d, V%d\n", x, y);
     x = (opcode & 0x0F00) >> 8;
     y = (opcode & 0x00F0) >> 4;
     if (V[x] != V[y])
       pc += 2;
     break;
 
-  case 0xA: // LD I, addr
-    //fprintf(logfile," LD I, %d\n", opcode & 0x0FFF);
+  case 0xA: 
+    LOG(" LD I, %d\n", opcode & 0x0FFF);
     addr = opcode & 0x0FFF;
     I = addr;
     break;
 
-  case 0xB: // JP V0, addr
-    //fprintf(logfile," JP V0, %d\n", opcode & 0x0FFF);
+  case 0xB: 
+    LOG(" JP V0, %d\n", opcode & 0x0FFF);
     addr = opcode & 0x0FFF;
     pc = addr + V[0];
     jump = 1;
     break;
 
-  case 0xC: // RND Vx, byte
+  case 0xC: 
     x = (opcode & 0x0F00) >> 8;
     k = opcode & 0x00FF;
-    //fprintf(logfile," RND V%d, %d\n", x, k);
+    LOG(" RND V%d, %d\n", x, k);
     V[x] = (rand() % 256) & k;
     break;
 
@@ -355,11 +351,11 @@ void read_opcode(uint16_t opcode) {
     x = V[(opcode & 0x0F00) >> 8];
     y = V[(opcode & 0x00F0) >> 4];
     n = opcode & 0x000F;
-    //fprintf(logfile," DRAW %d, %d, %d\n", x, y, n);
+    LOG(" DRAW %d, %d, %d\n", x, y, n);
 
     V[0xF] = 0;
     for (int i = 0; i < n; i++) {
-      sprite = mem[I + i]; // line of 8 pixels
+      sprite = mem[I + i]; 
       for (int j = 0; j < 8; j++) {
         xpos = (x + j) % DISPLAY_WIDTH;
         ypos = (y + i) % DISPLAY_HEIGHT;
@@ -369,8 +365,6 @@ void read_opcode(uint16_t opcode) {
           V[0xF] = 1;
 
         DISPLAY(xpos, ypos) = bit ^ DISPLAY(xpos, ypos);
-        // move(ypos + 1, xpos + 1);
-        // printw("%s", DISPLAY(xpos, ypos) ? "█" : " ");
       }
     }
     break;
@@ -379,12 +373,12 @@ void read_opcode(uint16_t opcode) {
     x = (opcode & 0x0F00) >> 8;
     switch (opcode & 0x00FF) {
     case 0x9E:
-      //fprintf(logfile,"SKP V%d (=%d)\n", x, V[x]);
+      LOG("SKP V%d (=%d)\n", x, V[x]);
       if (keys[V[x]])
         pc += 2;
       break;
     case 0xA1:
-      //fprintf(logfile,"SKNP V%d (=%d)\n", x, V[x]);
+      LOG("SKNP V%d (=%d)\n", x, V[x]);
       if (!keys[V[x]])
         pc += 2;
       break;
@@ -395,70 +389,65 @@ void read_opcode(uint16_t opcode) {
     x = (opcode & 0x0F00) >> 8;
     switch (opcode & 0x00FF) {
     case 0x07:
-      //fprintf(logfile,"LD V%d, DT (=%d)\n", x, dt);
+      LOG("LD V%d, DT (=%d)\n", x, dt);
       V[x] = dt;
       break;
     case 0x0A:
-      //fprintf(logfile,"WAITK V%d, K\n", x);
+      LOG("WAITK V%d, K\n", x);
       while ((c = read_event()) == -1 )
         ;
       V[x] = c;
-      //fprintf(logfile," (=%d)\n", c);
+      LOG(" (=%d)\n", c);
       break;
     case 0x15:
       dt = V[x];
-      //fprintf(logfile,"LD DT, V%d (=%d)\n", x, V[x]);
+      LOG("LD DT, V%d (=%d)\n", x, V[x]);
       break;
     case 0x18:
       st = V[x];
-      //fprintf(logfile,"LD ST, V%d (=%d)\n", x, V[x]);
+      LOG("LD ST, V%d (=%d)\n", x, V[x]);
       break;
     case 0x1E:
       I += V[x];
-      //fprintf(logfile,"ADD I, V%d (=%d)\n", x, V[x]);
+      LOG("ADD I, V%d (=%d)\n", x, V[x]);
       break;
     case 0x29:
-      I = V[x] * 5; // TODO: ver se isso esta certo
-      //fprintf(logfile,"ADD F, V%d (=%d)\n", x, V[x]);
+      I = V[x] * 5;
+      LOG("ADD F, V%d (=%d)\n", x, V[x]);
       break;
     case 0x33:
-      //fprintf(logfile,"LD B, V%d (=%d)\n", x, V[x]);
+      LOG("LD B, V%d (=%d)\n", x, V[x]);
       mem[I] = V[x] / 100;
       mem[I + 1] = (V[x] / 10) % 10;
       mem[I + 2] = V[x] % 10;
       break;
     case 0x55:
-      //fprintf(logfile,"LD [I], V%d\n", x);
+      LOG("LD [I], V%d\n", x);
       for (uint8_t i = 0; i <= x; i++)
         mem[I++] = V[i];
       break;
     case 0x65:
-      //fprintf(logfile,"LD V%d, [I]\n", x);
+      LOG("LD V%d, [I]\n", x);
       for (uint8_t i = 0; i <= x; i++)
         V[i] = mem[I++];
       break;
     }
     break;
   }
+
+#ifdef DO_LOGGING
   fflush(logfile);
+#endif
 }
 
 
 int main(int argc, char *argv[]) {
-  int iters = 0;
+  LOG_INIT;
+
   int c;
   uint16_t opcode;
   V[0] = 0;
   V[1] = 0;
-  logfile = fopen("log.log", "w");
-  setvbuf(logfile, NULL, _IOLBF, 1000);
-
-  // initscr();
-  // cbreak();
-  // noecho();
-  // curs_set(0);
-  // keypad(stdscr, TRUE);
-  // nodelay(stdscr, TRUE); // Set stdscr to non-blocking
 
   Display display = sdl_initialize(SDL_INIT_VIDEO);
   chip8_init();
@@ -470,7 +459,6 @@ int main(int argc, char *argv[]) {
     opcode = mem[pc] << 8 | mem[pc + 1];
     pc += 2;
     read_opcode(opcode);
-    //refresh();
 
     if (dt > 0) dt--;
     if (st > 0) st--;
@@ -490,62 +478,6 @@ int main(int argc, char *argv[]) {
     }
     
     SDL_UpdateWindowSurface(display.window);
-    SDL_Delay(FPS);
+    SDL_Delay(FPS / 5);
   }
 }
-
-// int main2(int argc, char *argv[]) {
-//   setlocale(LC_ALL, "");
-//   int iters = 0;
-//   int c;
-//   V[0] = 0;
-//   V[1] = 0;
-//   logfile = fopen("instructions", "w");
-//   setvbuf(logfile, NULL, _IOLBF, 1000);
-//   chip8_load(argv[1]);
-//   for (int i = PROGRAMSTART; i+1 < MEMSIZE; i+=2){
-//     read_opcode(mem[i] << 8 | mem[i+1]);
-//   }
-// 
-//   
-// 
-//   return 0;
-// }
-
-// int main1(){
-//   int iters = 0;
-//   int c;
-//   V[0] = 0;
-//   V[1] = 0;
-// 
-//   initscr();
-//   cbreak();
-//   noecho();
-//   chip8_init();
-//   while (1) {
-//     refresh();
-//     for (int i = 0; i < 16; i++) keys[i] = 0; // limpa o teclado
-//     while ((c = getch()) != ERR){
-//       if (get_key(c) != -1)
-//         keys[get_key(c)] = 1;
-//     }
-//       
-//     for (int i = 0; i < DISPLAY_HEIGHT; i++) {
-//       move(i + 1, 1);
-//       for (int j = 0; j < DISPLAY_WIDTH; j++) {
-//         printw("%c", (DISPLAY(j, i)) ? '#' : ' ');
-//       }
-//     }
-// 
-//     I = 5 * (c - 'a');
-//     read_opcode(0xD015);
-//     iters += 1;
-//     if (V[0] + 15 > DISPLAY_WIDTH){
-//       V[0] = 0; V[1] += 6;
-//     } else {
-//       V[0] += 9;
-//     }
-//   }
-// 
-//   return 0;
-// }

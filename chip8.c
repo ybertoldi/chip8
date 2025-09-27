@@ -442,8 +442,12 @@ void read_opcode(uint16_t opcode) {
 
 
 int main(int argc, char *argv[]) {
+  if (argc != 2){
+    printf("usage: %s <rom-file>\n", argv[0]);
+    exit(0);
+  }
+  
   LOG_INIT;
-
   int c;
   uint16_t opcode;
   V[0] = 0;
@@ -478,6 +482,6 @@ int main(int argc, char *argv[]) {
     }
     
     SDL_UpdateWindowSurface(display.window);
-    SDL_Delay(FPS / 5);
+    SDL_Delay(FPS / 20);
   }
 }

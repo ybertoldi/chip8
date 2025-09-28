@@ -13,7 +13,7 @@
 #include <SDL2/SDL_keyboard.h>
 
 // uncomment to enable instruction logging
-#define DO_LOGGING 
+// #define DO_LOGGING 
 
 #ifdef DO_LOGGING
   FILE *logfile;
